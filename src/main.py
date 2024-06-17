@@ -37,7 +37,7 @@ def time_distribute(secs: int) -> tuple[int, int, int]:
     return secs, mins, hours
 
 
-def download_playlist(playlist_url: str, output: Optional[PathLike[str]]) -> None:
+def download_playlist(playlist_url: str, output: Optional[str]) -> None:
     """Downloads the audio from all videos in a specified YouTube playlist.
     Downloads into `~/Music/<TITLE>/` by default.
 
@@ -71,8 +71,8 @@ def download_playlist(playlist_url: str, output: Optional[PathLike[str]]) -> Non
             base_dir.mkdir()
         output_dir = base_dir / sanitize_filename(playlist.title)
     else:
-        if str(output).startswith("~"):
-            output_dir = Path.home() / str(output).removeprefix("~")
+        if output.startswith("~"):
+            output_dir = Path.home() / output.removeprefix("~")
         else:
             output_dir = Path(output)
 
@@ -142,6 +142,7 @@ def download_playlist(playlist_url: str, output: Optional[PathLike[str]]) -> Non
         print(f"\tDownloaded size: {readable_size(bytes_downloaded)} / "
                                  f"{readable_size(total_bytes)}")
     print(f"\tTotal length: {hours} hours, {mins} mins, {secs} secs")
+    print(f"\tDestination: `{str(output_dir)}`")
     if len(age_restricted_urls) != 0:
         print(f"\nAge restricted videos: ({len(age_restricted_urls)})")
         for restricted_url in age_restricted_urls:
@@ -149,11 +150,32 @@ def download_playlist(playlist_url: str, output: Optional[PathLike[str]]) -> Non
 
 
 def main() -> None:
-    if len(sys.argv) < 2:
+    def expect_arg_after(switch: str, i: int) -> None:
+        if i == len(sys.argv) - 1:
+            print(f"Expected an argument after `{switch}`", file=sys.stderr)
+            exit(1)
+
+    playlist_url = None
+    output = None
+    args = sys.argv
+    i = 1
+    while i < len(args):
+        match args[i]:
+            case "-o":
+                expect_arg_after("-o", i)
+                i += 1
+                output = args[i]
+            case _:
+                if playlist_url is not None:
+                    print("Multiple playlist URLs provided", file=sys.stderr)
+                    exit(1)
+                playlist_url = args[i]
+        i += 1
+    if playlist_url is None:
         print("No playlist URL provided", file=sys.stderr)
         exit(1)
     try:
-        download_playlist(sys.argv[1], None)
+        download_playlist(playlist_url, output)
     except DownloadingError as e:
         print(e.msg, file=sys.stderr)
         exit(1)
