@@ -10,12 +10,16 @@ from typing import Optional
 
 
 class DownloadingError(Exception):
+    """Basic class covering all posible errors encountered
+    while downloading YouTube videos.
+    """
     def __init__(self, msg: str) -> None:
         super().__init__()
         self.msg = msg
 
 
 def readable_size(bytes: int) -> str:
+    """Returns a human readable representation of a number of bytes."""
     if bytes < 1024:
         return f"{bytes} bytes"
     elif bytes < 1024**2:
@@ -27,13 +31,35 @@ def readable_size(bytes: int) -> str:
 
 
 def time_distribute(secs: int) -> tuple[int, int, int]:
+    """Divides seconds into a standard (seconds, minutes, hours) format."""
     mins, secs = divmod(secs, 60)
     hours, mins = divmod(mins, 60)
     return secs, mins, hours
 
 
-def download_playlist(playlist_url: str, output: Optional[PathLike]) -> None:
-    p = Playlist(playlist_url)
+def download_playlist(playlist_url: str, output: Optional[PathLike[str]]) -> None:
+    """Downloads the audio from all videos in a specified YouTube playlist.
+    Downloads into `~/Music/<TITLE>/` by default.
+
+    # Parameters
+    ------------
+    * `playlist_url`: The URL to the YouTube playlist to be downloaded.
+    * `output`: The directory all files will be downloaded into.
+
+    # Examples
+    ----------
+    ```python
+    url = input("Enter playlist url: ")
+    path = input("Enter output path: ")
+    try:
+        download_playlist(url, path)
+    except DownloadingError as e:
+        print(e.msg)
+    else:
+        print("Success!")
+    ```
+    """
+    playlist = Playlist(playlist_url)
     output_dir: Path
     if output is None:
         base_dir = Path.home() / "Music"
@@ -43,7 +69,7 @@ def download_playlist(playlist_url: str, output: Optional[PathLike]) -> None:
             )
         if not base_dir.exists():
             base_dir.mkdir()
-        output_dir = base_dir / sanitize_filename(p.title)
+        output_dir = base_dir / sanitize_filename(playlist.title)
     else:
         if str(output).startswith("~"):
             output_dir = Path.home() / str(output).removeprefix("~")
@@ -60,8 +86,8 @@ def download_playlist(playlist_url: str, output: Optional[PathLike]) -> None:
     total_bytes = 0
     age_restricted_urls: list[str] = []
     info: list[dict[str, str]] = []
-    print(f"Downloading playlist: {p.title}\n")
-    for i, vid in enumerate(p.videos, start=1):
+    print(f"Downloading playlist: {playlist.title}\n")
+    for i, vid in enumerate(playlist.videos, start=1):
         stream: Optional[Stream]
         try:
             stream = vid.streams\
@@ -82,7 +108,7 @@ def download_playlist(playlist_url: str, output: Optional[PathLike]) -> None:
         file_name = f"{sanitize_filename(stream.title)}.mp4"
         file_path = output_dir / file_name
         if not file_path.is_file():
-            print(f"Downloading {i}/{p.length}: {stream.title} "
+            print(f"Downloading {i}/{playlist.length}: {stream.title} "
                   f"({hours}:{mins:02d}:{secs:02d})",
                   end="", flush=True)
             stream.download(str(output_dir), file_name)
@@ -94,7 +120,7 @@ def download_playlist(playlist_url: str, output: Optional[PathLike]) -> None:
         else:
             file_size = file_path.stat().st_size
             total_bytes += file_size
-            print(f"Found {i}/{p.length}: {stream.title} "
+            print(f"Found {i}/{playlist.length}: {stream.title} "
                   f"({hours}:{mins:02d}:{secs:02d})")
         info.append({
             "author": vid.author,
@@ -105,11 +131,11 @@ def download_playlist(playlist_url: str, output: Optional[PathLike]) -> None:
         json.dump(info, file)
     secs, mins, hours = time_distribute(total_secs)
 
-    print(f"\nFinished downloading playlist: {p.title}")
-    if vids_downloaded == p.length:
-        print(f"\tTotal videos: {p.length}")
+    print(f"\nFinished downloading playlist: {playlist.title}")
+    if vids_downloaded == playlist.length:
+        print(f"\tTotal videos: {playlist.length}")
     else:
-        print(f"\tDownloaded videos: {vids_downloaded} / {p.length}")
+        print(f"\tDownloaded videos: {vids_downloaded} / {playlist.length}")
     if bytes_downloaded == total_bytes:
         print(f"\tTotal size: {readable_size(bytes_downloaded)}")
     else:
