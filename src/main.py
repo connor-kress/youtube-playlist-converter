@@ -37,6 +37,31 @@ def time_distribute(secs: int) -> tuple[int, int, int]:
     return secs, mins, hours
 
 
+def get_and_validate_output_dir(output: Optional[str], title: str) -> Path:
+    """Normalizes optional input to an absolute path with default."""
+    output_dir: Path
+    if output is None:
+        base_dir = Path.home() / "Music"
+        if base_dir.is_file():
+            raise DownloadingError(
+                "File found at default directory (`~/Music`)"
+            )
+        if not base_dir.exists():
+            base_dir.mkdir()
+        output_dir = base_dir / sanitize_filename(title)
+    elif output.startswith("~"):
+        output_dir = Path.home() / output.removeprefix("~")
+    else:
+        output_dir = Path(output)
+        if not output_dir.is_absolute():
+            output_dir = Path.cwd() / output_dir
+    if output_dir.is_file():
+        raise DownloadingError("Output path contains a file")
+    if not output_dir.exists():
+        output_dir.mkdir(parents=True)
+    return output_dir
+
+
 def download_playlist(playlist_url: str, output: Optional[str]) -> None:
     """Downloads the audio from all videos in a specified YouTube playlist.
     Downloads into `~/Music/<TITLE>/` by default.
@@ -60,26 +85,7 @@ def download_playlist(playlist_url: str, output: Optional[str]) -> None:
     ```
     """
     playlist = Playlist(playlist_url)
-    output_dir: Path
-    if output is None:
-        base_dir = Path.home() / "Music"
-        if base_dir.is_file():
-            raise DownloadingError(
-                "File found at default directory (`~/Music`)"
-            )
-        if not base_dir.exists():
-            base_dir.mkdir()
-        output_dir = base_dir / sanitize_filename(playlist.title)
-    else:
-        if output.startswith("~"):
-            output_dir = Path.home() / output.removeprefix("~")
-        else:
-            output_dir = Path(output)
-
-    if output_dir.is_file():
-        raise DownloadingError("Output path contains a file")
-    if not output_dir.exists():
-        output_dir.mkdir(parents=True)
+    output_dir = get_and_validate_output_dir(output, playlist.title)
     total_secs = 0
     bytes_downloaded = 0
     vids_downloaded = 0
