@@ -123,7 +123,11 @@ def download_playlist(playlist_url: str,
             print(f"Downloading {i}/{playlist.length}: {stream.title} "
                   f"({hours}:{mins:02d}:{secs:02d})",
                   end="", flush=True)
-            stream.download(str(output_dir), file_name)
+            try:
+                stream.download(str(output_dir), file_name)
+            except Exception as e:
+                file_path.unlink()
+                raise e
             vids_downloaded += 1
             file_size = file_path.stat().st_size
             bytes_downloaded += file_size
