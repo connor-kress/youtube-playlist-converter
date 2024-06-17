@@ -37,14 +37,17 @@ def time_distribute(secs: int) -> tuple[int, int, int]:
     return secs, mins, hours
 
 
-def get_and_validate_output_dir(output: Optional[str], title: str) -> Path:
+def get_and_validate_output_dir(output: Optional[str],
+                                title: str,
+                                only_audio: bool) -> Path:
     """Normalizes optional input to an absolute path with default."""
     output_dir: Path
     if output is None:
-        base_dir = Path.home() / "Music"
+        type_str = "Music" if only_audio else "Videos"
+        base_dir = Path.home() / type_str
         if base_dir.is_file():
             raise DownloadingError(
-                "File found at default directory (`~/Music`)"
+                f"File found at default directory (`~/{type_str}`)"
             )
         if not base_dir.exists():
             base_dir.mkdir()
@@ -62,14 +65,17 @@ def get_and_validate_output_dir(output: Optional[str], title: str) -> Path:
     return output_dir
 
 
-def download_playlist(playlist_url: str, output: Optional[str]) -> None:
-    """Downloads the audio from all videos in a specified YouTube playlist.
-    Downloads into `~/Music/<TITLE>/` by default.
+def download_playlist(playlist_url: str,
+                      output: Optional[str],
+                      only_audio: bool) -> None:
+    """Downloads all videos in a specified YouTube playlist.
+    Downloads into `~/Music/<TITLE>/` or `~/Videos/<TITLE>/` by default.
 
     # Parameters
     ------------
     * `playlist_url`: The URL to the YouTube playlist to be downloaded.
     * `output`: The directory all files will be downloaded into.
+    * `only_audio`: Whether video is downloaded.
 
     # Examples
     ----------
@@ -85,7 +91,7 @@ def download_playlist(playlist_url: str, output: Optional[str]) -> None:
     ```
     """
     playlist = Playlist(playlist_url)
-    output_dir = get_and_validate_output_dir(output, playlist.title)
+    output_dir = get_and_validate_output_dir(output, playlist.title, only_audio)
     total_secs = 0
     bytes_downloaded = 0
     vids_downloaded = 0
@@ -97,7 +103,7 @@ def download_playlist(playlist_url: str, output: Optional[str]) -> None:
         stream: Optional[Stream]
         try:
             stream = vid.streams\
-                        .filter(file_extension="mp4", only_audio=True)\
+                        .filter(file_extension="mp4", only_audio=only_audio)\
                         .first()
         except AgeRestrictedError:
             age_restricted_urls.append(vid.watch_url)
@@ -106,7 +112,7 @@ def download_playlist(playlist_url: str, output: Optional[str]) -> None:
         if stream is None:
             print("No stream found")
             continue
-        if not stream.includes_audio_track:
+        if only_audio and not stream.includes_audio_track:
             print("Video has no audio")
             continue
         total_secs += vid.length
@@ -163,6 +169,7 @@ def main() -> None:
 
     playlist_url = None
     output = None
+    only_audio = False
     args = sys.argv
     i = 1
     while i < len(args):
@@ -171,6 +178,8 @@ def main() -> None:
                 expect_arg_after("-o", i)
                 i += 1
                 output = args[i]
+            case "-a":
+                only_audio = True
             case _:
                 if playlist_url is not None:
                     print("Multiple playlist URLs provided", file=sys.stderr)
@@ -181,7 +190,11 @@ def main() -> None:
         print("No playlist URL provided", file=sys.stderr)
         exit(1)
     try:
-        download_playlist(playlist_url, output)
+        download_playlist(
+            playlist_url,
+            output,
+            only_audio
+        )
     except DownloadingError as e:
         print(e.msg, file=sys.stderr)
         exit(1)
