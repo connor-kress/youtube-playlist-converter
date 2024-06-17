@@ -8,6 +8,13 @@ from pytube import Playlist, Stream
 from pytube.exceptions import AgeRestrictedError
 from typing import Optional
 
+
+class DownloadingError(Exception):
+    def __init__(self, msg: str) -> None:
+        super().__init__()
+        self.msg = msg
+
+
 def readable_size(bytes: int) -> str:
     if bytes < 1024:
         return f"{bytes} bytes"
@@ -31,8 +38,9 @@ def download_playlist(playlist_url: str, output: Optional[PathLike]) -> None:
     if output is None:
         base_dir = Path.home() / "Music"
         if base_dir.is_file():
-            print("File found at default directory (`~/Music`)", file=sys.stderr)
-            exit(1)
+            raise DownloadingError(
+                "File found at default directory (`~/Music`)"
+            )
         if not base_dir.exists():
             base_dir.mkdir()
         output_dir = base_dir / sanitize_filename(p.title)
@@ -43,8 +51,7 @@ def download_playlist(playlist_url: str, output: Optional[PathLike]) -> None:
             output_dir = Path(output)
 
     if output_dir.is_file():
-        print("Output path contains a file", file=sys.stderr)
-        exit(1)
+        raise DownloadingError("Output path contains a file")
     if not output_dir.exists():
         output_dir.mkdir(parents=True)
     total_secs = 0
@@ -119,7 +126,11 @@ def main() -> None:
     if len(sys.argv) < 2:
         print("No playlist URL provided", file=sys.stderr)
         exit(1)
-    download_playlist(sys.argv[1], None)
+    try:
+        download_playlist(sys.argv[1], None)
+    except DownloadingError as e:
+        print(e.msg, file=sys.stderr)
+        exit(1)
 
 
 if __name__ == "__main__":
