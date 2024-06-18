@@ -1,6 +1,7 @@
+import requests
 import sys
 
-from mutagen.mp4 import MP4
+from mutagen.mp4 import MP4, MP4Cover
 from pathlib import Path
 from pathvalidate import sanitize_filename
 from pytube import Playlist, Stream
@@ -17,16 +18,16 @@ class DownloadingError(Exception):
         self.msg = msg
 
 
-def readable_size(bytes: int) -> str:
+def readable_size(size: int) -> str:
     """Returns a human readable representation of a number of bytes."""
-    if bytes < 1024:
-        return f"{bytes} bytes"
-    elif bytes < 1024**2:
-        return f"{bytes/1024:.2f} KiB"
-    elif bytes < 1024**3:
-        return f"{bytes/1024**2:.2f} MiB"
+    if size < 1024:
+        return f"{size} bytes"
+    elif size < 1024**2:
+        return f"{size/1024:.2f} KiB"
+    elif size < 1024**3:
+        return f"{size/1024**2:.2f} MiB"
     else:
-        return f"{bytes/1024**3:.2f} GiB"
+        return f"{size/1024**3:.2f} GiB"
 
 
 def time_distribute(secs: int) -> tuple[int, int, int]:
@@ -64,9 +65,17 @@ def get_and_validate_output_dir(output: Optional[str],
     return output_dir
 
 
-def set_mp4_meta_data(vid_path: Path, title: str, artist: str) -> None:
+def fetch_url_raw(url: str) -> bytes:
+    res = requests.get(url)
+    res.raise_for_status()
+    return res.content
+
+
+def set_mp4_meta_data(vid_path: Path, title: str, artist: str, cover_data: bytes) -> None:
     """Sets an MP4 file's metadata."""
+    cover = MP4Cover(cover_data, MP4Cover.FORMAT_JPEG)
     vid = MP4(vid_path)
+    vid["covr"] = [cover]
     vid["\xa9nam"] = [title]
     vid["\xa9ART"] = [artist]
     vid.save()
@@ -129,9 +138,10 @@ def download_playlist(playlist_url: str,
             print(f"Downloading {i}/{playlist.length}: {stream.title} "
                   f"({hours}:{mins:02d}:{secs:02d})",
                   end="", flush=True)
+            cover_data = fetch_url_raw(vid.thumbnail_url)
             try:
                 stream.download(str(output_dir), file_name)
-                set_mp4_meta_data(file_path, stream.title, vid.author)
+                set_mp4_meta_data(file_path, stream.title, vid.author, cover_data)
             except Exception as e:
                 file_path.unlink(missing_ok=True)
                 raise e
