@@ -1,7 +1,6 @@
-import json
 import sys
 
-from os import PathLike
+from mutagen.mp4 import MP4
 from pathlib import Path
 from pathvalidate import sanitize_filename
 from pytube import Playlist, Stream
@@ -65,6 +64,14 @@ def get_and_validate_output_dir(output: Optional[str],
     return output_dir
 
 
+def set_mp4_meta_data(vid_path: Path, title: str, artist: str) -> None:
+    """Sets an MP4 file's metadata."""
+    vid = MP4(vid_path)
+    vid["\xa9nam"] = [title]
+    vid["\xa9ART"] = [artist]
+    vid.save()
+
+
 def download_playlist(playlist_url: str,
                       output: Optional[str],
                       only_audio: bool) -> None:
@@ -97,7 +104,6 @@ def download_playlist(playlist_url: str,
     vids_downloaded = 0
     total_bytes = 0
     age_restricted_urls: list[str] = []
-    info: list[dict[str, str]] = []
     print(f"Downloading playlist: {playlist.title}\n")
     for i, vid in enumerate(playlist.videos, start=1):
         stream: Optional[Stream]
@@ -125,8 +131,9 @@ def download_playlist(playlist_url: str,
                   end="", flush=True)
             try:
                 stream.download(str(output_dir), file_name)
+                set_mp4_meta_data(file_path, stream.title, vid.author)
             except Exception as e:
-                file_path.unlink()
+                file_path.unlink(missing_ok=True)
                 raise e
             vids_downloaded += 1
             file_size = file_path.stat().st_size
@@ -138,13 +145,6 @@ def download_playlist(playlist_url: str,
             total_bytes += file_size
             print(f"Found {i}/{playlist.length}: {stream.title} "
                   f"({hours}:{mins:02d}:{secs:02d})")
-        info.append({
-            "author": vid.author,
-            "title": stream.title,
-            "path": str(file_path),
-        })
-    with open(output_dir / "info.json", "w") as file:
-        json.dump(info, file)
     secs, mins, hours = time_distribute(total_secs)
 
     print(f"\nFinished downloading playlist: {playlist.title}")
