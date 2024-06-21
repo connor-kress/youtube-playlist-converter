@@ -2,9 +2,9 @@ import pytube
 import requests
 import sys
 
+from moviepy.editor import AudioFileClip
 from pathlib import Path
 from pathvalidate import sanitize_filename
-from pydub import AudioSegment
 from pytube import Playlist, Stream
 from pytube.exceptions import AgeRestrictedError
 from typing import Callable, Optional
@@ -86,10 +86,9 @@ def download_mp3(stream: pytube.Stream, dir_path: Path, file_name: str) -> None:
     except KeyboardInterrupt as e:
         temp_path.unlink(missing_ok=True)
         raise e
-
-    audio = AudioSegment.from_file(str(temp_path))
-
-    audio.export(str(file_path), format="mp3")
+    audio = AudioFileClip(str(temp_path))
+    audio.write_audiofile(str(file_path), codec="mp3",
+                          verbose=False, logger=None)
     temp_path.unlink()
 
 
@@ -126,7 +125,7 @@ def download_playlist(playlist_url: str,
         print("Success!")
     ```
     """
-    assert file_type in metadata_functions
+    assert file_type in download_functions
 
     playlist = Playlist(playlist_url)
     dir_path = get_and_validate_dir_path(output, playlist.title, only_audio)
@@ -172,10 +171,11 @@ def download_playlist(playlist_url: str,
                             cover_data=cover_data)
         try:
             download_functions[file_type](stream, dir_path, file_name)
-            metadata_functions[file_type](file_path, metadata)
+            if file_type in metadata_functions:
+                metadata_functions[file_type](file_path, metadata)
         except KeyboardInterrupt as e:
             file_path.unlink(missing_ok=True)
-            print(f"deleted `{str(file_path)}`")
+            print(f"\ndeleted `{str(file_path)}`")
             raise e
         vids_downloaded += 1
         file_size = file_path.stat().st_size

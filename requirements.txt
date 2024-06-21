@@ -1,4 +1,4 @@
+moviepy
 mutagen
 pathvalidate
-pydub
 pytube
