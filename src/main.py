@@ -232,6 +232,8 @@ def main() -> None:
                     exit(1)
                 playlist_url = args[i]
         i += 1
+    if file_type in {"mp3"}:
+        only_audio = True
     if playlist_url is None:
         print("No playlist URL provided", file=sys.stderr)
         exit(1)
