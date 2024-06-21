@@ -1,13 +1,15 @@
+import pytube
 import requests
 import sys
 
-from mutagen.mp4 import MP4, MP4Cover
 from pathlib import Path
 from pathvalidate import sanitize_filename
+from pydub import AudioSegment
 from pytube import Playlist, Stream
 from pytube.exceptions import AgeRestrictedError
-from typing import Optional
+from typing import Callable, Optional
 
+from metadata import Metadata, metadata_functions
 
 class DownloadingError(Exception):
     """Basic class covering all posible errors encountered
@@ -37,11 +39,11 @@ def time_distribute(secs: int) -> tuple[int, int, int]:
     return secs, mins, hours
 
 
-def get_and_validate_output_dir(output: Optional[str],
+def get_and_validate_dir_path(output: Optional[str],
                                 title: str,
                                 only_audio: bool) -> Path:
     """Normalizes optional input to an absolute path with default."""
-    output_dir: Path
+    dir_path: Path
     if output is None:
         type_str = "Music" if only_audio else "Videos"
         base_dir = Path.home() / type_str
@@ -51,18 +53,18 @@ def get_and_validate_output_dir(output: Optional[str],
             )
         if not base_dir.exists():
             base_dir.mkdir()
-        output_dir = base_dir / sanitize_filename(title)
+        dir_path = base_dir / sanitize_filename(title)
     elif output.startswith("~"):
-        output_dir = Path.home() / output.removeprefix("~")
+        dir_path = Path.home() / output.removeprefix("~")
     else:
-        output_dir = Path(output)
-        if not output_dir.is_absolute():
-            output_dir = Path.cwd() / output_dir
-    if output_dir.is_file():
+        dir_path = Path(output)
+        if not dir_path.is_absolute():
+            dir_path = Path.cwd() / dir_path
+    if dir_path.is_file():
         raise DownloadingError("Output path contains a file")
-    if not output_dir.exists():
-        output_dir.mkdir(parents=True)
-    return output_dir
+    if not dir_path.exists():
+        dir_path.mkdir(parents=True)
+    return dir_path
 
 
 def fetch_url_raw(url: str) -> bytes:
@@ -71,18 +73,36 @@ def fetch_url_raw(url: str) -> bytes:
     return res.content
 
 
-def set_mp4_meta_data(vid_path: Path, title: str, artist: str, cover_data: bytes) -> None:
-    """Sets an MP4 file's metadata."""
-    cover = MP4Cover(cover_data, MP4Cover.FORMAT_JPEG)
-    vid = MP4(vid_path)
-    vid["covr"] = [cover]
-    vid["\xa9nam"] = [title]
-    vid["\xa9ART"] = [artist]
-    vid.save()
+def download_mp4(stream: pytube.Stream, dir_path: Path, file_name: str) -> None:
+    stream.download(str(dir_path), f"{file_name}.mp4")
+
+
+def download_mp3(stream: pytube.Stream, dir_path: Path, file_name: str) -> None:
+    file_path = dir_path / f"{file_name}.mp3"
+    temp_name = "temp_file.mp4"
+    temp_path = dir_path / temp_name
+    try:
+        stream.download(str(dir_path), temp_name)
+    except KeyboardInterrupt as e:
+        temp_path.unlink(missing_ok=True)
+        raise e
+
+    audio = AudioSegment.from_file(str(temp_path))
+
+    audio.export(str(file_path), format="mp3")
+    temp_path.unlink()
+
+
+type DownloadFunction = Callable[[pytube.Stream, Path, str], None]
+download_functions: dict[str, DownloadFunction] = {
+    "mp4": download_mp4,
+    "mp3": download_mp3,
+}
 
 
 def download_playlist(playlist_url: str,
                       output: Optional[str],
+                      file_type: str,
                       only_audio: bool) -> None:
     """Downloads all videos in a specified YouTube playlist.
     Downloads into `~/Music/<TITLE>/` or `~/Videos/<TITLE>/` by default.
@@ -99,15 +119,17 @@ def download_playlist(playlist_url: str,
     url = input("Enter playlist url: ")
     path = input("Enter output path: ")
     try:
-        download_playlist(url, path)
+        download_playlist(url, path, "mp4", False)
     except DownloadingError as e:
         print(e.msg)
     else:
         print("Success!")
     ```
     """
+    assert file_type in metadata_functions
+
     playlist = Playlist(playlist_url)
-    output_dir = get_and_validate_output_dir(output, playlist.title, only_audio)
+    dir_path = get_and_validate_dir_path(output, playlist.title, only_audio)
     total_secs = 0
     bytes_downloaded = 0
     vids_downloaded = 0
@@ -118,7 +140,8 @@ def download_playlist(playlist_url: str,
         stream: Optional[Stream]
         try:
             stream = vid.streams\
-                        .filter(file_extension="mp4", only_audio=only_audio)\
+                        .filter(file_extension="mp4",
+                                only_audio=only_audio)\
                         .first()
         except AgeRestrictedError:
             age_restricted_urls.append(vid.watch_url)
@@ -132,29 +155,33 @@ def download_playlist(playlist_url: str,
             continue
         total_secs += vid.length
         secs, mins, hours = time_distribute(vid.length)
-        file_name = f"{sanitize_filename(stream.title)}.mp4"
-        file_path = output_dir / file_name
-        if not file_path.is_file():
-            print(f"Downloading {i}/{playlist.length}: {stream.title} "
-                  f"({hours}:{mins:02d}:{secs:02d})",
-                  end="", flush=True)
-            cover_data = fetch_url_raw(vid.thumbnail_url)
-            try:
-                stream.download(str(output_dir), file_name)
-                set_mp4_meta_data(file_path, stream.title, vid.author, cover_data)
-            except Exception as e:
-                file_path.unlink(missing_ok=True)
-                raise e
-            vids_downloaded += 1
-            file_size = file_path.stat().st_size
-            bytes_downloaded += file_size
-            total_bytes += file_size
-            print(f" - {readable_size(file_size)}")
-        else:
+        file_name = sanitize_filename(stream.title)
+        file_path = dir_path / f"{file_name}.{file_type}"
+        if file_path.is_file():
             file_size = file_path.stat().st_size
             total_bytes += file_size
             print(f"Found {i}/{playlist.length}: {stream.title} "
                   f"({hours}:{mins:02d}:{secs:02d})")
+            continue
+        print(f"Downloading {i}/{playlist.length}: {stream.title} "
+              f"({hours}:{mins:02d}:{secs:02d})",
+              end="", flush=True)
+        cover_data = fetch_url_raw(vid.thumbnail_url)
+        metadata = Metadata(title=stream.title,
+                            artist=vid.author,
+                            cover_data=cover_data)
+        try:
+            download_functions[file_type](stream, dir_path, file_name)
+            metadata_functions[file_type](file_path, metadata)
+        except KeyboardInterrupt as e:
+            file_path.unlink(missing_ok=True)
+            print(f"deleted `{str(file_path)}`")
+            raise e
+        vids_downloaded += 1
+        file_size = file_path.stat().st_size
+        bytes_downloaded += file_size
+        total_bytes += file_size
+        print(f" - {readable_size(file_size)}")
     secs, mins, hours = time_distribute(total_secs)
 
     print(f"\nFinished downloading playlist: {playlist.title}")
@@ -168,7 +195,7 @@ def download_playlist(playlist_url: str,
         print(f"\tDownloaded size: {readable_size(bytes_downloaded)} / "
                                  f"{readable_size(total_bytes)}")
     print(f"\tTotal length: {hours} hours, {mins} mins, {secs} secs")
-    print(f"\tDestination: `{str(output_dir)}`")
+    print(f"\tDestination: `{str(dir_path)}`")
     if len(age_restricted_urls) != 0:
         print(f"\nAge restricted videos: ({len(age_restricted_urls)})")
         for restricted_url in age_restricted_urls:
@@ -183,6 +210,7 @@ def main() -> None:
 
     playlist_url = None
     output = None
+    file_type = "mp4"
     only_audio = False
     args = sys.argv
     i = 1
@@ -192,6 +220,10 @@ def main() -> None:
                 expect_arg_after("-o", i)
                 i += 1
                 output = args[i]
+            case "-f":
+                expect_arg_after("-f", i)
+                i += 1
+                file_type = args[i]
             case "-a":
                 only_audio = True
             case _:
@@ -203,11 +235,15 @@ def main() -> None:
     if playlist_url is None:
         print("No playlist URL provided", file=sys.stderr)
         exit(1)
+    if file_type not in metadata_functions:
+        print(f"Invalid file type `{file_type}`", file=sys.stderr)
+        exit(1)
     try:
         download_playlist(
             playlist_url,
             output,
-            only_audio
+            file_type,
+            only_audio,
         )
     except DownloadingError as e:
         print(e.msg, file=sys.stderr)
