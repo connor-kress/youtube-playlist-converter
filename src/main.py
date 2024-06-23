@@ -2,7 +2,7 @@ import pytube
 import requests
 import sys
 
-from moviepy.editor import AudioFileClip
+from moviepy.audio.io.AudioFileClip import AudioFileClip
 from pathlib import Path
 from pathvalidate import sanitize_filename
 from pytube import Playlist, Stream
@@ -20,7 +20,7 @@ class DownloadingError(Exception):
         self.msg = msg
 
 
-def readable_size(size: int) -> str:
+def format_size(size: int) -> str:
     """Returns a human readable representation of a number of bytes."""
     if size < 1024:
         return f"{size} bytes"
@@ -32,16 +32,26 @@ def readable_size(size: int) -> str:
         return f"{size/1024**3:.2f} GiB"
 
 
-def time_distribute(secs: int) -> tuple[int, int, int]:
-    """Divides seconds into a standard (seconds, minutes, hours) format."""
+def format_time(secs: int, long: bool = False) -> str:
+    """Returns a formated time string given the total number of seconds."""
     mins, secs = divmod(secs, 60)
     hours, mins = divmod(mins, 60)
-    return secs, mins, hours
+    parts: list[str] = []
+    if long:
+        if hours: parts.append(f"{hours} hours")
+        if hours or mins: parts.append(f"{mins} mins")
+        if hours or mins or secs: parts.append(f"{secs} secs")
+        return ", ".join(parts)
+    else:
+        if hours: parts.append(f"{hours}h")
+        if hours or mins: parts.append(f"{mins}m")
+        if hours or mins or secs: parts.append(f"{secs}s")
+        return " ".join(parts)
 
 
 def get_and_validate_dir_path(output: Optional[str],
-                                title: str,
-                                only_audio: bool) -> Path:
+                              title: str,
+                              only_audio: bool) -> Path:
     """Normalizes optional input to an absolute path with default."""
     dir_path: Path
     if output is None:
@@ -153,17 +163,16 @@ def download_playlist(playlist_url: str,
             print("Video has no audio")
             continue
         total_secs += vid.length
-        secs, mins, hours = time_distribute(vid.length)
         file_name = sanitize_filename(stream.title)
         file_path = dir_path / f"{file_name}.{file_type}"
         if file_path.is_file():
             file_size = file_path.stat().st_size
             total_bytes += file_size
             print(f"Found {i}/{playlist.length}: {stream.title} "
-                  f"({hours}:{mins:02d}:{secs:02d})")
+                  f"({format_time(vid.length)})")
             continue
         print(f"Downloading {i}/{playlist.length}: {stream.title} "
-              f"({hours}:{mins:02d}:{secs:02d})",
+              f"({format_time(vid.length)})",
               end="", flush=True)
         cover_data = fetch_url_raw(vid.thumbnail_url)
         metadata = Metadata(title=stream.title,
@@ -181,8 +190,7 @@ def download_playlist(playlist_url: str,
         file_size = file_path.stat().st_size
         bytes_downloaded += file_size
         total_bytes += file_size
-        print(f" - {readable_size(file_size)}")
-    secs, mins, hours = time_distribute(total_secs)
+        print(f" - {format_size(file_size)}")
 
     print(f"\nFinished downloading playlist: {playlist.title}")
     if vids_downloaded == playlist.length:
@@ -190,11 +198,11 @@ def download_playlist(playlist_url: str,
     else:
         print(f"\tDownloaded videos: {vids_downloaded} / {playlist.length}")
     if bytes_downloaded == total_bytes:
-        print(f"\tTotal size: {readable_size(bytes_downloaded)}")
+        print(f"\tTotal size: {format_size(bytes_downloaded)}")
     else:
-        print(f"\tDownloaded size: {readable_size(bytes_downloaded)} / "
-                                 f"{readable_size(total_bytes)}")
-    print(f"\tTotal length: {hours} hours, {mins} mins, {secs} secs")
+        print(f"\tDownloaded size: {format_size(bytes_downloaded)} / "
+                                 f"{format_size(total_bytes)}")
+    print(f"\tTotal length: {format_time(total_secs, long=True)}")
     print(f"\tDestination: `{str(dir_path)}`")
     if len(age_restricted_urls) != 0:
         print(f"\nAge restricted videos: ({len(age_restricted_urls)})")
@@ -250,6 +258,8 @@ def main() -> None:
     except DownloadingError as e:
         print(e.msg, file=sys.stderr)
         exit(1)
+    except KeyboardInterrupt:
+        print("\nDownload canceled")
 
 
 if __name__ == "__main__":
