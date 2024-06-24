@@ -40,12 +40,12 @@ def format_time(secs: int, long: bool = False) -> str:
     if long:
         if hours: parts.append(f"{hours} hours")
         if hours or mins: parts.append(f"{mins} mins")
-        if hours or mins or secs: parts.append(f"{secs} secs")
+        parts.append(f"{secs} secs")
         return ", ".join(parts)
     else:
         if hours: parts.append(f"{hours}h")
         if hours or mins: parts.append(f"{mins}m")
-        if hours or mins or secs: parts.append(f"{secs}s")
+        parts.append(f"{secs}s")
         return " ".join(parts)
 
 
